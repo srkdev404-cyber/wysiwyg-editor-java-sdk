@@ -1,0 +1,29 @@
+name: Sync Version in bower.json
+
+on:
+  repository_dispatch:
+    types: [sync-version]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update bower.json version
+        run: |
+          VERSION="${{ github.event.client_payload.version }}"
+          jq ".version = \"$VERSION\"" Examples/bower.json > /tmp/bower.json
+          mv /tmp/bower.json Examples/bower.json
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "srkdev404-cyber"
+          git config user.email "srkdev404@gamil.com"
+          git add Examples/bower.json
+          git commit -m "chore: bump bower version to ${{ github.event.client_payload.version }}"
+          git push
