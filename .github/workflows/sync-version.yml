@@ -2,7 +2,7 @@ name: Sync Version in bower.json
 
 on:
   repository_dispatch:
-    types: [sync-version]
+    types: [version_update]
 
 permissions:
   contents: write
