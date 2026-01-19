@@ -1,6 +1,6 @@
 {
   "name": "froala-editor-java-sdk",
-  "version": "4.7.35",
+  "version": "4.1.4-beta",
   "author": "Florin Marius Popescu <florin@froala.com> (https://www.froala.com/)",
   "description": "Java SDK for Froala Editor",
   "keywords": [
