@@ -1,39 +1,46 @@
 name: Auto Release – editor-java
 
 on:
-  repository_dispatch:
-    types: [version_update]
+  pull_request:
+    types: [closed]
+    branches:
+      - master
 
 permissions:
   contents: write
 
 jobs:
   release:
+    # Run only when PR is merged
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
 
     steps:
       # --------------------------------------------
-      # Load version & release notes from primary repo
+      # Validate release intent (release: yes)
       # --------------------------------------------
-      - name: Load version & release notes
+      - name: Validate release intent
+        id: intent
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const body  = context.payload.pull_request.body || '';
+            const title = context.payload.pull_request.title || '';
+            const text  = `${title}\n${body}`;
+
+            core.setOutput(
+              'release',
+              /release:\s*yes/i.test(text) ? 'true' : 'false'
+            );
+
+      - name: Stop if not a release PR
+        if: steps.intent.outputs.release == 'false'
         run: |
-          VERSION="${{ github.event.client_payload.version }}"
-          NOTES="${{ github.event.client_payload.release_notes }}"
-
-          VERSION="${VERSION//,/\.}"
-
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid version format: $VERSION"
-            exit 1
-          fi
-
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
-          echo "$NOTES" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          echo "ℹ️ Not a release PR. Skipping auto-release."
+          exit 0
 
       # --------------------------------------------
-      # Checkout repository
+      # Checkout merged code
       # --------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -42,28 +49,42 @@ jobs:
           fetch-depth: 0
 
       # --------------------------------------------
-      # Validate bower.json version (safety check)
+      # Read & validate version from bower.json
       # --------------------------------------------
-      - name: Validate bower.json version
+      - name: Read version from bower.json
         run: |
-          BOWER_VERSION=$(jq -r '.version' Examples/bower.json)
+          VERSION=$(jq -r '.version' Examples/bower.json)
 
-          if [ -z "$BOWER_VERSION" ] || [ "$BOWER_VERSION" = "null" ]; then
-            echo "Version not found in Examples/bower.json"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            echo "❌ Version not found in Examples/bower.json"
             exit 1
           fi
 
-          if [ "$BOWER_VERSION" != "$VERSION" ]; then
-            echo "Version mismatch!"
-            echo "Primary repo: $VERSION"
-            echo "bower.json: $BOWER_VERSION"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
             exit 1
           fi
 
-          echo "bower.json version validated: $BOWER_VERSION"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "✅ Releasing version $VERSION"
 
       # --------------------------------------------
-      # Create GitHub Release (PRIMARY NOTES ONLY)
+      # Prepare clean release notes
+      # --------------------------------------------
+      - name: Prepare release notes
+        run: |
+          PR_BODY="${{ github.event.pull_request.body }}"
+
+          CLEAN_NOTES=$(echo "$PR_BODY" | sed \
+            -e '/^release:\s*/Id' \
+            -e '/^## Release Notes.*$/Id')
+
+          echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
+          echo "$CLEAN_NOTES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      # --------------------------------------------
+      # Create GitHub Release (NO ARTIFACTS)
       # --------------------------------------------
       - name: Create GitHub Release
         env:
@@ -72,4 +93,4 @@ jobs:
           gh release create "v${VERSION}" \
             --title "Release ${VERSION}" \
             --notes "$RELEASE_NOTES" \
-            --generate-notes=false
+            --latest
